@@ -1,0 +1,25 @@
+# Domains whose resolved IPs AP clients may reach when UPLINK_MODE=bambu.
+# One domain per line; each entry also matches all of its subdomains.
+# Installed copy: /etc/mod-3d-ap/bambu-domains.txt (re-run install.sh to update).
+#
+# Source: https://wiki.bambulab.com/en/general/printer-network-ports plus
+# OpenBambuAPI. Bambu says the list is not exhaustive and changes over time.
+
+# Bambu API, MQTT (us./cn.mqtt), firmware/OTA, model files
+bambulab.com
+bambulab.cn
+bblmw.com
+# MQTT broker CNAME target (unverified)
+emqx.cloud
+
+# Object storage for files/firmware. NOTE: these are broad (any S3 / Aliyun OSS
+# host a client looks up becomes reachable). Comment out to be stricter.
+amazonaws.com
+aliyuncs.com
+
+# Remote camera (TUTK/Kalay). Best-effort only: media relays are handed out as
+# raw IPs and won't pass a DNS-based allowlist.
+iotcplatform.com
+kalay.net.cn
+
+# NTP is not listed: the Pi answers all client NTP itself (chrony).

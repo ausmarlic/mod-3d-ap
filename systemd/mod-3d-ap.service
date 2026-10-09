@@ -1,0 +1,16 @@
+[Unit]
+Description=mod-3d-ap: modalic-3d access point (address, firewall, config)
+Documentation=https://github.com/ausmarlic/mod-3d-ap
+# Start when the TP-Link appears; stop if it is unplugged.
+BindsTo=sys-subsystem-net-devices-ap0.device
+After=sys-subsystem-net-devices-ap0.device NetworkManager.service
+Wants=mod-3d-ap-hostapd.service mod-3d-ap-dnsmasq.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/mod-3d-ap setup
+ExecStop=/usr/local/sbin/mod-3d-ap teardown
+
+[Install]
+WantedBy=multi-user.target sys-subsystem-net-devices-ap0.device

@@ -1,0 +1,11 @@
+[Unit]
+Description=mod-3d-ap: DHCP/DNS for the modalic-3d access point
+PartOf=mod-3d-ap.service
+Requires=mod-3d-ap.service
+After=mod-3d-ap.service mod-3d-ap-hostapd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --conf-file=/run/mod-3d-ap/dnsmasq.conf
+Restart=on-failure
+RestartSec=3

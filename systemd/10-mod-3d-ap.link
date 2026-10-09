@@ -1,0 +1,7 @@
+# Give the TP-Link Archer T3U Plus (rtw88_8822bu) a stable name so it never
+# swaps with the onboard wlan0. Installed to /etc/systemd/network/.
+[Match]
+Driver=rtw88_8822bu
+
+[Link]
+Name=ap0

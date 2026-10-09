@@ -1,0 +1,51 @@
+# mod-3d-ap configuration
+#
+# Installed copy lives at /etc/mod-3d-ap/mod-3d-ap.conf (root-only, not in git).
+# After editing it, run:  sudo mod-3d-ap apply
+#
+# This file is sourced by bash: KEY=value, no spaces around '='.
+# Quote values that contain spaces or shell metacharacters.
+
+# --- WiFi network served by the TP-Link adapter --------------------------------
+SSID="modalic-3d"
+# WPA2 passphrase, 8-63 characters.
+PASSPHRASE="change-me-please"
+
+# Regulatory country (ISO 3166 alpha-2).
+COUNTRY="US"
+
+# Band: "2.4" or "5". Most Bambu printers (P1/A1/X1 series) are 2.4 GHz only,
+# so keep 2.4 unless every client supports 5 GHz.
+BAND="2.4"
+# 2.4 GHz: 1, 6 or 11.   5 GHz (non-DFS, US): 36, 40, 44, 48, 149, 153, 157, 161.
+CHANNEL="6"
+
+# --- Interfaces ----------------------------------------------------------------
+# The TP-Link is always renamed to "ap0" by /etc/systemd/network/10-mod-3d-ap.link.
+# Interface that reaches the outside network (used in bambu and update modes).
+UPLINK_IFACE="wlan0"
+
+# --- Addressing ----------------------------------------------------------------
+AP_ADDR="10.42.0.1"
+AP_PREFIX="24"
+DHCP_START="10.42.0.50"
+DHCP_END="10.42.0.250"
+DHCP_LEASE="12h"
+# Local DNS domain for clients, e.g. printer-x1c.mod3d.lan
+LOCAL_DOMAIN="mod3d.lan"
+
+# --- Uplink policy -------------------------------------------------------------
+# Default mode at boot:
+#   isolated : no traffic leaves the AP subnet (printers in LAN-only mode).
+#   bambu    : NAT out via UPLINK_IFACE, but only to IPs that Bambu domains
+#              (listed in /etc/mod-3d-ap/bambu-domains.txt) resolve to, so
+#              Bambu Handy / Studio work through the cloud.
+# Switch at runtime (not persisted across reboot):
+#   sudo mod-3d-ap mode bambu
+#   sudo mod-3d-ap mode update --for 1h   # full internet for firmware updates
+#   sudo mod-3d-ap mode default
+# AP clients can never reach the home LAN or other private ranges.
+UPLINK_MODE="isolated"
+
+# Allow SSH to the Pi from clients on the AP network.
+ALLOW_SSH_FROM_AP="yes"
