@@ -7,6 +7,8 @@
 #   mod-3d-ap mode default               drop any override, use UPLINK_MODE
 #   mod-3d-ap status     show mode, units, clients, leases, allow set
 #   mod-3d-ap apply      restart the systemd units (picks up config changes)
+#   mod-3d-ap reset      reload the adapter driver (recovers a wedged rtw88)
+#   mod-3d-ap watchdog   one stall check; run every 30s by mod-3d-ap-watchdog.timer
 #   mod-3d-ap check      validate the config only
 #   mod-3d-ap render     write generated configs to $RUN_DIR without applying
 #   mod-3d-ap setup|teardown             used by mod-3d-ap.service
@@ -36,6 +38,7 @@ load_config() {
     : "${AP_ADDR:=10.42.0.1}" "${AP_PREFIX:=24}"
     : "${DHCP_START:=10.42.0.50}" "${DHCP_END:=10.42.0.250}" "${DHCP_LEASE:=12h}"
     : "${LOCAL_DOMAIN:=mod3d.lan}" "${UPLINK_MODE:=isolated}" "${ALLOW_SSH_FROM_AP:=yes}"
+    : "${WATCHDOG:=yes}" "${WATCHDOG_STALL_SECS:=90}"
     # Effective mode: runtime override (tmpfs) or the configured default.
     MODE="$UPLINK_MODE"
     if [[ -r "$RUN_DIR/mode" ]]; then MODE=$(<"$RUN_DIR/mode"); fi
@@ -83,6 +86,11 @@ channel=$CHANNEL
 # 20 MHz only (no ht_capab HT40): most compatible with ESP32-class printers.
 ieee80211n=1
 wmm_enabled=1
+# rtw88 USB sends all broadcast/multicast via a HIGH queue that firmware drains
+# only once per DTIM beacon; when it backs up, EAPOL and data stall. Convert
+# multicast to per-station unicast and drain every beacon.
+multicast_to_unicast=1
+dtim_period=1
 # Clients must reach each other: Bambu Studio discovery is broadcast/SSDP.
 ap_isolate=0
 $( [[ "$BAND" == 5 ]] && echo "ieee80211ac=1" )
@@ -339,6 +347,53 @@ show_mode() {
     fi
 }
 
+# Reload the rtw88 driver. ap0 disappears and returns, and systemd restarts
+# mod-3d-ap.service through its device binding; the mode override in /run is kept.
+cmd_reset() {
+    load_config
+    local dev
+    dev=$(readlink -f "/sys/class/net/$AP_IFACE/device/.." 2>/dev/null || true)
+    log "resetting adapter"
+    systemctl stop mod-3d-ap.service
+    if ! modprobe -r rtw88_8822bu rtw88_8822b rtw88_usb rtw88_core 2>/dev/null; then
+        # Fall back to a USB de-authorize/re-authorize cycle.
+        [[ -n "$dev" && -w "$dev/authorized" ]] || die "cannot reset adapter"
+        echo 0 > "$dev/authorized"
+        sleep 2
+        echo 1 > "$dev/authorized"
+    fi
+    modprobe rtw88_8822bu || true
+    local tries=30
+    until [[ -e "/sys/class/net/$AP_IFACE" ]] || (( --tries == 0 )); do
+        sleep 1
+    done
+    [[ -e "/sys/class/net/$AP_IFACE" ]] || die "$AP_IFACE did not come back after reset"
+    systemctl start mod-3d-ap.service
+    rm -f "$RUN_DIR/watchdog"
+    log "adapter reset complete"
+}
+
+# Detect the rtw88 stall: RX frozen for WATCHDOG_STALL_SECS while clients keep
+# failing the WPA handshake (hostapd "local deauth request").
+cmd_watchdog() {
+    load_config
+    [[ "$WATCHDOG" == yes ]] || return 0
+    systemctl is-active --quiet mod-3d-ap-hostapd.service || return 0
+    local rx now last_rx since fails
+    rx=$(<"/sys/class/net/$AP_IFACE/statistics/rx_packets")
+    now=$(date +%s)
+    if ! read -r last_rx since < "$RUN_DIR/watchdog" 2>/dev/null || [[ "$rx" != "$last_rx" ]]; then
+        echo "$rx $now" > "$RUN_DIR/watchdog"
+        return 0
+    fi
+    (( now - since >= WATCHDOG_STALL_SECS )) || return 0
+    fails=$(journalctl -q -o cat -u mod-3d-ap-hostapd.service --since "@$since" \
+        | grep -c "local deauth request" || true)
+    (( fails >= 2 )) || return 0
+    log "RX stalled $((now - since))s with $fails failed handshakes; resetting adapter"
+    cmd_reset
+}
+
 cmd_status() {
     load_config
     show_mode
@@ -378,6 +433,8 @@ case "${1:-}" in
     status)   cmd_status ;;
     check)    cmd_check ;;
     mode)     shift; cmd_mode "$@" ;;
+    reset)    cmd_reset ;;
+    watchdog) cmd_watchdog ;;
     render)   cmd_render; log "rendered to $RUN_DIR" ;;
-    *) sed -n '2,15s/^# \{0,1\}//p' "$0"; exit 2 ;;
+    *) sed -n '2,17s/^# \{0,1\}//p' "$0"; exit 2 ;;
 esac

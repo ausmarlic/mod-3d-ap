@@ -16,7 +16,7 @@ to the whole internet for firmware updates.
 |---|---|
 | Hardware | Raspberry Pi 4, TP-Link Archer T3U Plus (AC1300, RTL8822BU, USB `2357:0138`) |
 | OS | Raspberry Pi OS / Debian 13 (trixie), kernel 6.18 |
-| Driver | In-kernel `rtw88_8822bu`, which supports AP mode on 2.4 and 5 GHz. **No driver build needed.** |
+| Driver | In-kernel `rtw88_8822bu`, which supports AP mode on 2.4 and 5 GHz, so no driver build is needed. It has a known stall under load; see [Known issue](#known-issue-rtw88-usb-stall-under-load). |
 | AP subnet | `10.42.0.1/24`, DHCP `.50–.250`, local domain `mod3d.lan` |
 
 ## Quick start
@@ -132,6 +132,7 @@ Printers then also resolve as `x1c-01.mod3d.lan`.
 ```bash
 sudo mod-3d-ap status                 # mode, units, connected stations, leases, allow set
 journalctl -u 'mod-3d-ap*' -f         # live logs (hostapd joins, DHCP, mode changes)
+sudo mod-3d-ap reset                  # reload the adapter driver (see "Known issue")
 sudo mod-3d-ap check                  # validate config only
 sudo mod-3d-ap render                 # write generated configs to /run/mod-3d-ap for inspection
 sudo ./uninstall.sh                   # remove units/files; keeps /etc/mod-3d-ap and packages
@@ -145,7 +146,41 @@ device, so unplugging the adapter stops the AP and plugging it back in starts it
 | `mod-3d-ap.service` | Oneshot: renders configs, addresses `ap0`, loads nftables, configures chrony |
 | `mod-3d-ap-hostapd.service` | The access point |
 | `mod-3d-ap-dnsmasq.service` | DHCP and DNS, and fills the `bambu4` allow set |
+| `mod-3d-ap-watchdog.timer` | Every 30 s: resets the adapter if it stalls (see below) |
 | `mod-3d-ap-revert.timer` | Transient; created by `mode … --for` |
+
+## Known issue: rtw88 USB stall under load
+
+**Symptom:** after a few minutes of heavy traffic (for example a printer
+firmware download), every client suddenly fails to connect with "wrong
+password". The AP keeps beaconing, and `ap0`'s `rx_packets` stops increasing.
+The kernel logs nothing.
+
+**Cause:** this is a known bug in the in-kernel `rtw88` USB driver for
+RTL8822BU and RTL8821CU, and it is still present in 6.18. The driver queues all
+broadcast/multicast frames in a HIGH queue that the firmware drains only once
+per DTIM beacon. When that queue backs up, the adapter's shared TX buffer pool
+runs dry, and EAPOL handshake frames and data stall. A fix has been posted
+upstream (rtw-next `c710c7c2e038` plus a follow-up series); it is not in a
+released kernel yet.
+
+**Mitigations installed here:**
+
+| Mitigation | Where |
+|------------|-------|
+| `multicast_to_unicast=1`, `dtim_period=1` (keeps broadcast off the HIGH queue and drains it every beacon) | generated `hostapd.conf` |
+| avahi does not announce on `ap0` | `/etc/avahi/avahi-daemon.conf` (`deny-interfaces=ap0`) |
+| Adapter kept in USB 2 mode (USB 3 interferes with 2.4 GHz) | `/etc/modprobe.d/mod-3d-ap.conf` |
+| Watchdog: when RX is frozen ≥ 90 s *and* handshakes are failing, the driver is reloaded | `mod-3d-ap-watchdog.timer` |
+
+**Manual recovery:** `sudo mod-3d-ap reset`. A plain `systemctl restart`
+may not clear the stall. To see past watchdog resets, run
+`journalctl -u mod-3d-ap-watchdog | grep resetting`.
+
+**If it keeps happening:** use a MediaTek adapter with an in-kernel `mt76`
+driver. The MT7610U (e.g. ALFA AWUS036ACHM) is widely recommended for 2.4 GHz
+AP mode, and the MT7612U (e.g. ALFA AWUS036ACM) is a solid dual-band choice.
+Both need driver-match changes in `systemd/10-mod-3d-ap.link` and `install.sh`.
 
 ## WiFi compatibility
 
@@ -197,5 +232,7 @@ install.sh / uninstall.sh
 - **Direct LAN access from the home WiFi:** let Bambu Studio on the home
   network reach printers without the cloud. This needs an SSDP relay and port
   forwards for 8883/990/322/6000. Not implemented.
+- If the rtw88 stall persists, move to an MT7610U/MT7612U adapter, or build rtw88
+  with the upstream fix.
 - Validate the `bambu` allowlist against real printer traffic. Check
   `sudo mod-3d-ap status` and the dnsmasq logs for blocked domains.

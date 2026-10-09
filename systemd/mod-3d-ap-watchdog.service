@@ -1,0 +1,6 @@
+[Unit]
+Description=mod-3d-ap: check for a stalled AP adapter
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mod-3d-ap watchdog

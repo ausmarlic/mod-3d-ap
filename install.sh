@@ -24,6 +24,19 @@ install -m 0755 "$REPO/bin/mod-3d-ap" /usr/local/sbin/mod-3d-ap
 install -m 0644 "$REPO"/systemd/mod-3d-ap*.service /etc/systemd/system/
 install -m 0644 "$REPO/systemd/10-mod-3d-ap.link" /etc/systemd/network/
 install -m 0644 "$REPO/systemd/90-mod-3d-ap-unmanaged.conf" /etc/NetworkManager/conf.d/
+install -m 0644 "$REPO"/systemd/mod-3d-ap-watchdog.{service,timer} /etc/systemd/system/
+install -m 0644 "$REPO/systemd/mod-3d-ap-modprobe.conf" /etc/modprobe.d/mod-3d-ap.conf
+
+# Don't announce mDNS on the AP: less broadcast load on the rtw88 HIGH queue.
+AVAHI=/etc/avahi/avahi-daemon.conf
+if [[ -f "$AVAHI" ]]; then
+    if grep -q '^deny-interfaces=' "$AVAHI"; then
+        grep -qE '^deny-interfaces=.*\bap0\b' "$AVAHI" || sed -i '/^deny-interfaces=/s/$/,ap0/' "$AVAHI"
+    else
+        sed -i '/^\[server\]/a deny-interfaces=ap0' "$AVAHI"
+    fi
+    systemctl try-restart avahi-daemon.service || true
+fi
 install -d -m 0755 "$CONF_DIR" "$CONF_DIR/dnsmasq.d"
 install -m 0644 "$REPO/config/bambu-domains.txt" "$CONF_DIR/bambu-domains.txt"
 
@@ -72,10 +85,14 @@ fi
 [[ -e /sys/class/net/ap0 ]] || echo "warning: ap0 not present yet (plug in the adapter or reboot)" >&2
 
 systemctl enable mod-3d-ap.service
+systemctl enable --now mod-3d-ap-watchdog.timer
 
 if /usr/local/sbin/mod-3d-ap check; then
     step "Starting access point"
-    /usr/local/sbin/mod-3d-ap apply
+    # A driver reload applies the modprobe options (USB 2 mode) and clears
+    # any stalled adapter state; it also (re)starts the AP.
+    /usr/local/sbin/mod-3d-ap reset
+    /usr/local/sbin/mod-3d-ap status
 else
     echo
     echo "Edit $CONF (sudoedit $CONF), then run: sudo mod-3d-ap apply"

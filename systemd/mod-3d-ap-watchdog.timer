@@ -1,0 +1,10 @@
+[Unit]
+Description=mod-3d-ap: check for a stalled AP adapter every 30s
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

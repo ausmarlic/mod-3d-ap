@@ -49,3 +49,8 @@ UPLINK_MODE="isolated"
 
 # Allow SSH to the Pi from clients on the AP network.
 ALLOW_SSH_FROM_AP="yes"
+
+# Reset the adapter driver automatically if it stops receiving while clients
+# fail to connect (known rtw88 USB AP-mode stall). Checked every 30s.
+WATCHDOG="yes"
+WATCHDOG_STALL_SECS="90"
